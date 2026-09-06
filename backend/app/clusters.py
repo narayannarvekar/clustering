@@ -1,12 +1,14 @@
-"""Group significant hot-spot hexes into contiguous clusters and score severity."""
+"""Group significant hot-spot hexes into contiguous clusters and score severity.
 
-from dataclasses import dataclass, field
+Geometry (dissolved cluster boundary) is intentionally NOT computed here — the
+client derives it from `hex_ids` via h3-js's cellsToMultiPolygon, so the API
+response only carries stats, not per-cluster polygons.
+"""
+
+from dataclasses import dataclass
 
 import h3
-from shapely.geometry import mapping, shape
-from shapely.ops import unary_union
 
-from app import geo
 from app.gistar import GiStarResult
 
 MIN_HEX_COUNT = 2
@@ -31,8 +33,7 @@ class Cluster:
     severity_score: float
     intervention_tier: str
     suggested_bonus_pct: int
-    geometry: dict
-    centroid: list[float] = field(default_factory=list)
+    centroid: list[float]  # [lng, lat]
 
 
 def _connected_components(hot_cells: set[str]) -> list[list[str]]:
@@ -60,6 +61,12 @@ def _severity_tier(severity: float) -> tuple[str, int]:
     return SEVERITY_TIERS[-1][1], SEVERITY_TIERS[-1][2]
 
 
+def _centroid(hex_ids: list[str]) -> list[float]:
+    """Mean of member hex centers — good enough for map pan/zoom, no polygon math needed."""
+    lats, lngs = zip(*(h3.cell_to_latlng(c) for c in hex_ids))
+    return [sum(lngs) / len(lngs), sum(lats) / len(lats)]
+
+
 def build_clusters(
     friction_scores: dict[str, float],
     gi_results: dict[str, GiStarResult],
@@ -81,10 +88,6 @@ def build_clusters(
         severity = max(0.0, min(0.5 * min(mean_z / 3.0, 1.0) + 0.5 * mean_friction, 1.0))
         tier, bonus = _severity_tier(severity)
 
-        polygons = [shape(geo.cell_to_geojson_polygon(c)) for c in hex_ids]
-        dissolved = unary_union(polygons)
-        centroid = dissolved.centroid
-
         clusters.append(
             Cluster(
                 cluster_id=cluster_id,
@@ -97,8 +100,7 @@ def build_clusters(
                 severity_score=round(severity, 4),
                 intervention_tier=tier,
                 suggested_bonus_pct=bonus,
-                geometry=mapping(dissolved),
-                centroid=[centroid.x, centroid.y],
+                centroid=_centroid(hex_ids),
             )
         )
 

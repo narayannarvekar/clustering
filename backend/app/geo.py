@@ -75,14 +75,6 @@ def get_hex_cells(metro_id: str, resolution: int = H3_RESOLUTION) -> list[str]:
     return list(h3.polygon_to_cells(get_metro_shape(metro_id), resolution))
 
 
-def cell_to_geojson_polygon(cell: str) -> dict:
-    """H3 cell boundary as a GeoJSON Polygon geometry (lng, lat order)."""
-    boundary = h3.cell_to_boundary(cell)  # tuple of (lat, lng)
-    ring = [[lng, lat] for lat, lng in boundary]
-    ring.append(ring[0])  # close the ring
-    return {"type": "Polygon", "coordinates": [ring]}
-
-
 def metro_boundary_geojson(metro_id: str) -> dict:
     """The metro's real MSA shape, as a GeoJSON geometry."""
     return mapping(_load_metro_shape(metro_id))

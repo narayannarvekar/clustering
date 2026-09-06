@@ -159,12 +159,27 @@ async function loadBoundary() {
   }).addTo(map);
 }
 
+function hexToFeature(record) {
+  // API ships no geometry — h3-js derives the boundary client-side from the cell id.
+  const ring = h3.cellToBoundary(record.h3, true); // [lng, lat], already closed
+  return { type: "Feature", geometry: { type: "Polygon", coordinates: [ring] }, properties: record };
+}
+
+function clusterToFeature(record) {
+  // Same idea: dissolve the member hexes into a boundary from hex_ids, not a server-sent polygon.
+  const multiPolygon = h3.cellsToMultiPolygon(record.hex_ids, true);
+  return { type: "Feature", geometry: { type: "MultiPolygon", coordinates: multiPolygon }, properties: record };
+}
+
 async function loadAll() {
-  const [hexesGeoJSON, clustersGeoJSON, stats] = await Promise.all([
+  const [hexesResp, clustersResp, stats] = await Promise.all([
     fetchJSON(`/api/hexes?metro=${currentMetro}`),
     fetchJSON(`/api/clusters?metro=${currentMetro}`),
     fetchJSON(`/api/stats?metro=${currentMetro}`),
   ]);
+
+  const hexesGeoJSON = { type: "FeatureCollection", features: hexesResp.hexes.map(hexToFeature) };
+  const clustersGeoJSON = { type: "FeatureCollection", features: clustersResp.clusters.map(clusterToFeature) };
 
   if (hexLayer) map.removeLayer(hexLayer);
   if (clusterLayer) map.removeLayer(clusterLayer);

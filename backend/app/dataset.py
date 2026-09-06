@@ -43,59 +43,51 @@ class Dataset:
         gistar_input = {c: score for c, score in self._friction_scores.items() if not self._low_sample[c]}
         gi_results = gistar.compute_gistar(gistar_input, k=self.k)
 
-        hex_features = []
+        hex_records = []
         for cell in self._all_cells:
             order_count, late_rate, avg_delay = self._raw_stats[cell]
             gi = gi_results.get(cell)
-            hex_features.append(
+            hex_records.append(
                 {
-                    "type": "Feature",
-                    "geometry": geo.cell_to_geojson_polygon(cell),
-                    "properties": {
-                        "h3": cell,
-                        "order_count": order_count,
-                        "late_rate": round(late_rate, 4),
-                        "avg_delay_minutes": round(avg_delay, 2),
-                        "friction_score": round(self._friction_scores[cell], 4),
-                        "low_sample": self._low_sample[cell],
-                        "gi_z": round(gi.z, 3) if gi else None,
-                        "gi_p": round(gi.p, 4) if gi else None,
-                        "confidence": gi.confidence if gi else 0,
-                        "spot_type": gi.spot_type if gi else "excluded",
-                    },
+                    "h3": cell,
+                    "order_count": order_count,
+                    "late_rate": round(late_rate, 4),
+                    "avg_delay_minutes": round(avg_delay, 2),
+                    "friction_score": round(self._friction_scores[cell], 4),
+                    "low_sample": self._low_sample[cell],
+                    "gi_z": round(gi.z, 3) if gi else None,
+                    "gi_p": round(gi.p, 4) if gi else None,
+                    "confidence": gi.confidence if gi else 0,
+                    "spot_type": gi.spot_type if gi else "excluded",
                 }
             )
 
         cluster_list = clusters_mod.build_clusters(gistar_input, gi_results)
-        cluster_features = [
+        cluster_records = [
             {
-                "type": "Feature",
-                "geometry": c.geometry,
-                "properties": {
-                    "cluster_id": c.cluster_id,
-                    "hex_count": c.hex_count,
-                    "hex_ids": c.hex_ids,
-                    "mean_friction": c.mean_friction,
-                    "mean_z": c.mean_z,
-                    "max_z": c.max_z,
-                    "confidence_level": c.confidence_level,
-                    "severity_score": c.severity_score,
-                    "intervention_tier": c.intervention_tier,
-                    "suggested_bonus_pct": c.suggested_bonus_pct,
-                    "centroid": c.centroid,
-                },
+                "cluster_id": c.cluster_id,
+                "hex_count": c.hex_count,
+                "hex_ids": c.hex_ids,
+                "mean_friction": c.mean_friction,
+                "mean_z": c.mean_z,
+                "max_z": c.max_z,
+                "confidence_level": c.confidence_level,
+                "severity_score": c.severity_score,
+                "intervention_tier": c.intervention_tier,
+                "suggested_bonus_pct": c.suggested_bonus_pct,
+                "centroid": c.centroid,
             }
             for c in cluster_list
         ]
 
-        self.hex_features = hex_features
-        self.cluster_features = cluster_features
+        self.hex_records = hex_records
+        self.cluster_records = cluster_records
         self.stats = {
             "metro": self.metro_id,
             "hex_count": len(self._all_cells),
             "hexes_with_data": self._hexes_with_data,
             "total_orders": self._total_orders,
-            "cluster_count": len(cluster_features),
+            "cluster_count": len(cluster_records),
             "mean_friction_score": round(sum(self._friction_scores.values()) / len(self._friction_scores), 4)
             if self._friction_scores
             else 0.0,

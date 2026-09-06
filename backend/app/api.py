@@ -34,14 +34,14 @@ def get_boundary(metro: str = Query("miami")):
     }
 
 
-@router.get("/hexes", response_model=schemas.HexFeatureCollection)
+@router.get("/hexes", response_model=schemas.HexesResponse)
 def get_hexes(metro: str = Query("miami")):
     metro = _validate_metro(metro)
     dataset = store.get(metro)
-    return {"type": "FeatureCollection", "features": dataset.hex_features}
+    return {"hexes": dataset.hex_records}
 
 
-@router.get("/clusters", response_model=schemas.ClusterFeatureCollection)
+@router.get("/clusters", response_model=schemas.ClustersResponse)
 def get_clusters(
     metro: str = Query("miami"),
     min_confidence: int = Query(90, ge=0, le=99),
@@ -51,8 +51,8 @@ def get_clusters(
     dataset = store.get(metro)
     if k is not None and k != dataset.k:
         dataset = store.regenerate(metro, k=k)
-    features = [f for f in dataset.cluster_features if f["properties"]["confidence_level"] >= min_confidence]
-    return {"type": "FeatureCollection", "features": features}
+    records = [r for r in dataset.cluster_records if r["confidence_level"] >= min_confidence]
+    return {"clusters": records}
 
 
 @router.get("/stats", response_model=schemas.StatsResponse)

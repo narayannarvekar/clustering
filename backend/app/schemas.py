@@ -34,7 +34,9 @@ class BoundaryFeature(BaseModel):
     properties: BoundaryProperties
 
 
-class HexProperties(BaseModel):
+class HexRecord(BaseModel):
+    """No geometry — the client derives each hex's boundary from `h3` via h3-js."""
+
     h3: str
     order_count: int
     late_rate: float
@@ -47,18 +49,13 @@ class HexProperties(BaseModel):
     spot_type: str
 
 
-class HexFeature(BaseModel):
-    type: Literal["Feature"]
-    geometry: dict[str, Any]
-    properties: HexProperties
+class HexesResponse(BaseModel):
+    hexes: list[HexRecord]
 
 
-class HexFeatureCollection(BaseModel):
-    type: Literal["FeatureCollection"]
-    features: list[HexFeature]
+class ClusterRecord(BaseModel):
+    """No geometry — the client derives the dissolved boundary from `hex_ids` via h3-js."""
 
-
-class ClusterProperties(BaseModel):
     cluster_id: int
     hex_count: int
     hex_ids: list[str]
@@ -72,15 +69,8 @@ class ClusterProperties(BaseModel):
     centroid: list[float]
 
 
-class ClusterFeature(BaseModel):
-    type: Literal["Feature"]
-    geometry: dict[str, Any]
-    properties: ClusterProperties
-
-
-class ClusterFeatureCollection(BaseModel):
-    type: Literal["FeatureCollection"]
-    features: list[ClusterFeature]
+class ClustersResponse(BaseModel):
+    clusters: list[ClusterRecord]
 
 
 class StatsResponse(BaseModel):
