@@ -80,6 +80,18 @@ html, body {
   white-space: nowrap;
 }
 
+#simulate-btn {
+  background: #1f2937;
+  color: var(--text);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+#simulate-btn:hover { border-color: var(--accent); }
+#simulate-btn:disabled { opacity: 0.5; cursor: default; }
+
 #main {
   flex: 1;
   display: flex;

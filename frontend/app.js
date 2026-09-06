@@ -212,6 +212,44 @@ document.querySelectorAll(".seg-btn").forEach((btn) => {
   });
 });
 
+// Demo-only stand-in for the real upstream friction-scoring service: jitters the
+// friction scores this app already knows about and pushes them through
+// POST /api/clusters/compute, the same call a real friction service would make.
+// The clustering service itself never generates or retains this data on its own.
+function jitterFriction(score) {
+  const noise = (Math.random() - 0.5) * 0.4;
+  return Math.max(0, Math.min(1, score + noise));
+}
+
+document.getElementById("simulate-btn").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  btn.textContent = "Simulating...";
+  try {
+    const { hexes } = await fetchJSON(`/api/map/hexes?metro=${currentMetro}`);
+    const payload = {
+      hexes: hexes
+        .filter((h) => h.has_data)
+        .map((h) => ({
+          h3: h.h3,
+          friction_score: jitterFriction(h.friction_score),
+          order_count: h.order_count,
+          late_rate: h.late_rate,
+          avg_delay_minutes: h.avg_delay_minutes,
+        })),
+    };
+    await fetchJSON(`/api/clusters/compute?metro=${currentMetro}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    await loadAll();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Simulate New Data";
+  }
+});
+
 async function switchMetro(metro) {
   if (metro.id === currentMetro) return;
   currentMetro = metro.id;

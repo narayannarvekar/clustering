@@ -17,6 +17,75 @@ Beach) and **Dallas–Fort Worth**, each using its real Census MSA boundary. Loc
 is seeded with synthetic friction data at startup (see `synthetic_data.py`) so the app is
 usable without a real upstream service — see "Local demo data" below.
 
+## How Getis-Ord Gi\* works
+
+Getis-Ord Gi\* answers a narrower question than "which hexes have high friction?" — it asks
+"which hexes have friction **significantly higher or lower than the metro-wide average**, once
+you also account for their neighbors?" A single hex with a bad friction score in isolation is
+just noise; the same score surrounded by other bad hexes is a real hotspot. Gi\* is what tells
+those two situations apart, and it's the only thing standing between "color hexes by friction"
+and an actual statistical claim you'd stake a pay-intervention budget on.
+
+**The formula**, implemented exactly as shown in `gistar.py`, for each hex *i*:
+
+```
+        Σⱼ wᵢⱼxⱼ − X̄ Σⱼ wᵢⱼ
+Gi* = ────────────────────────────────────
+        S √[ (n Σⱼ wᵢⱼ² − (Σⱼ wᵢⱼ)²) / (n−1) ]
+```
+
+- **n** — number of hexes in the study set (every hex with a friction score, metro-wide)
+- **X̄, S** — mean and population standard deviation of friction scores across all *n* hexes
+- **wᵢⱼ** — 1 if hex *j* is within `k` grid-steps of hex *i* (via H3's `grid_disk`), else 0.
+  This service uses binary weights and includes the hex itself in its own neighborhood
+  (that "self-inclusion" is precisely what makes this **Gi\*** rather than plain **Gi**).
+  `k` defaults to 2 (a ~19-hex neighborhood at resolution 7) and is configurable per
+  `POST /api/clusters/compute` call.
+- The result **z** is a standard z-score: how many standard deviations the neighborhood's
+  average friction sits from the metro-wide average. `p` is the two-tailed p-value for that
+  z-score (via the normal distribution).
+
+**Confidence tiers** (`_confidence_and_spot` in `gistar.py`), the same convention ArcGIS's
+Hot Spot Analysis uses:
+
+| `\|z\|` | `p` | Confidence | `spot_type` (if `z > 0` → hot, `z < 0` → cold) |
+|---|---|---|---|
+| > 2.58 | < 0.01 | 99% | hot / cold |
+| > 1.96 | < 0.05 | 95% | hot / cold |
+| > 1.65 | < 0.10 | 90% | hot / cold |
+| otherwise | — | 0% | `not_significant` |
+
+Only hexes that land on `hot` at ≥90% confidence are eligible to join a cluster
+(`clusters.py`) — everything else, including statistically significant **cold** spots (good
+performers, not a pay-intervention target), is excluded from cluster formation.
+
+### Worked example
+
+Ten hexes, friction scores 0–1. A/B/C are mutually adjacent (within `k`) and badly performing;
+D/E/F are mutually adjacent and performing well; G/H/I/J are geographically isolated from
+everyone (their only "neighbor" is themselves) and sit near the metro-wide average:
+
+| Hex | Score | Neighbors (within k) | Σwx | z | p | Confidence | `spot_type` |
+|---|---|---|---|---|---|---|---|
+| A | 0.90 | A, B, C | 2.65 | **+2.585** | 0.0097 | 99% | **hot** |
+| B | 0.85 | A, B, C | 2.65 | **+2.585** | 0.0097 | 99% | **hot** |
+| C | 0.90 | A, B, C | 2.65 | **+2.585** | 0.0097 | 99% | **hot** |
+| D | 0.05 | D, E, F | 0.20 | **−2.461** | 0.0138 | 95% | **cold** |
+| E | 0.10 | D, E, F | 0.20 | **−2.461** | 0.0138 | 95% | **cold** |
+| F | 0.05 | D, E, F | 0.20 | **−2.461** | 0.0138 | 95% | **cold** |
+| G | 0.45 | G only | 0.45 | −0.047 | 0.962 | 0% | not_significant |
+| H | 0.50 | H only | 0.50 | +0.110 | 0.912 | 0% | not_significant |
+| I | 0.40 | I only | 0.40 | −0.205 | 0.838 | 0% | not_significant |
+| J | 0.45 | J only | 0.45 | −0.047 | 0.962 | 0% | not_significant |
+
+(n=10, X̄=0.465, S=0.318.) A/B/C become a 3-hex cluster via connected-component grouping;
+D/E/F are statistically real cold spots but never form a "cluster" in this service's sense,
+since only `hot` hexes are eligible. G–J each have a nonzero friction score too, but sitting
+alone near the metro-wide average gives them z ≈ 0 — Gi\* never looks at a hex's own score in
+isolation, only whether *its neighborhood's average* deviates from the metro average. That's
+the whole point of the statistic: it's what separates "this hex happens to be a bit bad" from
+"this is a real hotspot worth paying to fix."
+
 ## Prerequisites
 
 - Python 3.10+
