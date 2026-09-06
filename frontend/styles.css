@@ -80,18 +80,6 @@ html, body {
   white-space: nowrap;
 }
 
-#reshuffle-btn {
-  background: #1f2937;
-  color: var(--text);
-  border: 1px solid var(--panel-border);
-  border-radius: 6px;
-  padding: 6px 12px;
-  font-size: 13px;
-  cursor: pointer;
-}
-#reshuffle-btn:hover { border-color: var(--accent); }
-#reshuffle-btn:disabled { opacity: 0.5; cursor: default; }
-
 #main {
   flex: 1;
   display: flex;

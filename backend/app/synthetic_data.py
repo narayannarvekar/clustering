@@ -1,8 +1,10 @@
-"""Synthetic order generation, per metro.
+"""Synthetic order generation, per metro — dev/demo data only.
 
-Stands in for a real order-performance feed. Produces per-hex aggregates
-(order_count, late_rate, avg_delay_minutes) that downstream friction/Gi*/cluster
-code consumes identically regardless of where the numbers came from.
+In production, friction scores are computed by a separate upstream service and
+pushed to POST /api/clusters/compute; this module exists purely so the app has
+something to display locally without that service. `build_demo_friction_records`
+produces the exact same shape as that push payload, so nothing downstream of
+`Dataset.ingest()` knows or cares that the data came from here instead.
 """
 
 from dataclasses import dataclass
@@ -17,6 +19,13 @@ DEFAULT_ORDER_COUNT = 50_000
 KM_PER_DEG_LAT = 111.0
 BASE_LATE_PROB = 0.12
 BASE_DELAY_SCALE_MIN = 8.0
+
+# Demo-only friction scoring (stands in for the upstream service's own confidence/scoring
+# logic — a real push would only include hexes it already trusts).
+MIN_SAMPLES = 3
+DELAY_NORMALIZATION_MINUTES = 30.0
+LATE_RATE_WEIGHT = 0.6
+DELAY_WEIGHT = 0.4
 
 # Per metro: urban population centers that draw order density (lat, lng, sigma_km, weight),
 # and zones with elevated lateness (lat, lng, radius_km, intensity) — interchanges, causeways,
@@ -185,3 +194,37 @@ def generate_hex_stats(
         cell: HexStats(order_count=int(order_count[i]), late_rate=float(late_rate[i]), avg_delay_minutes=float(avg_delay[i]))
         for i, cell in enumerate(uniq_cells)
     }
+
+
+def _demo_friction_score(late_rate: float, avg_delay_minutes: float) -> float:
+    normalized_delay = min(avg_delay_minutes / DELAY_NORMALIZATION_MINUTES, 1.0)
+    score = LATE_RATE_WEIGHT * late_rate + DELAY_WEIGHT * normalized_delay
+    return max(0.0, min(score, 1.0))
+
+
+def build_demo_friction_records(
+    metro_id: str,
+    n_orders: int = DEFAULT_ORDER_COUNT,
+    seed: int = DEFAULT_SEED,
+    resolution: int = geo.H3_RESOLUTION,
+) -> list[dict]:
+    """
+    Local stand-in for what the real friction-scoring service would push to
+    POST /api/clusters/compute: one record per hex with `h3` + `friction_score`
+    (plus order-volume context for display). Hexes with too few synthetic orders
+    to trust are simply omitted — same as a real upstream service would only
+    publish scores it's confident in, rather than us deciding what counts as
+    "low sample" on its behalf.
+    """
+    hex_stats = generate_hex_stats(metro_id, n_orders=n_orders, seed=seed, resolution=resolution)
+    return [
+        {
+            "h3": cell,
+            "friction_score": round(_demo_friction_score(stats.late_rate, stats.avg_delay_minutes), 4),
+            "order_count": stats.order_count,
+            "late_rate": round(stats.late_rate, 4),
+            "avg_delay_minutes": round(stats.avg_delay_minutes, 2),
+        }
+        for cell, stats in hex_stats.items()
+        if stats.order_count >= MIN_SAMPLES
+    ]

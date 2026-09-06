@@ -1,68 +1,59 @@
-"""Builds and caches the full computed dataset per metro: hexes + Gi* + clusters."""
+"""Per-metro clustering dataset: friction scores in, Gi*/clusters out.
+
+`Dataset` holds no opinion about where friction scores come from — `ingest()`
+takes whatever it's given (a real push from the upstream friction-scoring
+service, or `synthetic_data.build_demo_friction_records()` for local dev) and
+recomputes Gi*/clusters from it. This module never generates friction data
+itself.
+"""
 
 import threading
 
 from app import clusters as clusters_mod
-from app import friction, geo, gistar, synthetic_data
+from app import geo, gistar, synthetic_data
 
 
 class Dataset:
-    def __init__(self, metro_id: str, seed: int = synthetic_data.DEFAULT_SEED, k: int = gistar.DEFAULT_K_RING):
+    def __init__(self, metro_id: str, k: int = gistar.DEFAULT_K_RING):
         self.metro_id = metro_id
-        self.seed = seed
         self.k = k
-        self._rebuild_base()
+        self._all_cells = geo.get_hex_cells(metro_id)
+        self._friction_records: dict[str, dict] = {}
+        self.hex_records: list[dict] = []
+        self.cluster_records: list[dict] = []
+        self.stats: dict = {}
         self._compute_derived()
 
-    def _rebuild_base(self) -> None:
-        """Regenerate synthetic orders and per-hex friction scores (expensive, seed-dependent)."""
-        all_cells = geo.get_hex_cells(self.metro_id)
-        hex_stats = synthetic_data.generate_hex_stats(self.metro_id, seed=self.seed)
+    def ingest(self, friction_records: list[dict], k: int | None = None) -> None:
+        """Replace this metro's friction data and recompute Gi*/clusters from it.
 
-        raw_stats: dict[str, tuple[int, float, float]] = {}
-        friction_scores: dict[str, float] = {}
-        low_sample: dict[str, bool] = {}
-        for cell in all_cells:
-            stats = hex_stats.get(cell)
-            order_count = stats.order_count if stats else 0
-            late_rate = stats.late_rate if stats else 0.0
-            avg_delay = stats.avg_delay_minutes if stats else 0.0
-            raw_stats[cell] = (order_count, late_rate, avg_delay)
-            friction_scores[cell] = friction.compute_friction_score(order_count, late_rate, avg_delay)
-            low_sample[cell] = friction.is_low_sample(order_count)
-
-        self._all_cells = all_cells
-        self._raw_stats = raw_stats
-        self._friction_scores = friction_scores
-        self._low_sample = low_sample
-        self._total_orders = sum(s.order_count for s in hex_stats.values())
-        self._hexes_with_data = len(hex_stats)
+        Each record must have `h3` and `friction_score`; `order_count`, `late_rate`,
+        and `avg_delay_minutes` are optional display context.
+        """
+        self._friction_records = {r["h3"]: r for r in friction_records}
+        if k is not None:
+            self.k = k
+        self._compute_derived()
 
     def _compute_derived(self) -> None:
-        """Recompute Gi*/clusters from the cached base data (cheap, k-dependent)."""
-        gistar_input = {c: score for c, score in self._friction_scores.items() if not self._low_sample[c]}
-        gi_results = gistar.compute_gistar(gistar_input, k=self.k)
+        friction_scores = {h3_id: rec["friction_score"] for h3_id, rec in self._friction_records.items()}
+        gi_results = gistar.compute_gistar(friction_scores, k=self.k)
 
         hex_records = []
         for cell in self._all_cells:
-            order_count, late_rate, avg_delay = self._raw_stats[cell]
-            gi = gi_results.get(cell)
+            rec = self._friction_records.get(cell)
             hex_records.append(
                 {
                     "h3": cell,
-                    "order_count": order_count,
-                    "late_rate": round(late_rate, 4),
-                    "avg_delay_minutes": round(avg_delay, 2),
-                    "friction_score": round(self._friction_scores[cell], 4),
-                    "low_sample": self._low_sample[cell],
-                    "gi_z": round(gi.z, 3) if gi else None,
-                    "gi_p": round(gi.p, 4) if gi else None,
-                    "confidence": gi.confidence if gi else 0,
-                    "spot_type": gi.spot_type if gi else "excluded",
+                    "has_data": rec is not None,
+                    "friction_score": rec["friction_score"] if rec else None,
+                    "order_count": rec.get("order_count") if rec else None,
+                    "late_rate": rec.get("late_rate") if rec else None,
+                    "avg_delay_minutes": rec.get("avg_delay_minutes") if rec else None,
                 }
             )
 
-        cluster_list = clusters_mod.build_clusters(gistar_input, gi_results)
+        cluster_list = clusters_mod.build_clusters(friction_scores, gi_results)
         cluster_records = [
             {
                 "cluster_id": c.cluster_id,
@@ -85,40 +76,37 @@ class Dataset:
         self.stats = {
             "metro": self.metro_id,
             "hex_count": len(self._all_cells),
-            "hexes_with_data": self._hexes_with_data,
-            "total_orders": self._total_orders,
+            "hexes_with_friction_data": len(self._friction_records),
             "cluster_count": len(cluster_records),
-            "mean_friction_score": round(sum(self._friction_scores.values()) / len(self._friction_scores), 4)
-            if self._friction_scores
+            "mean_friction_score": round(sum(friction_scores.values()) / len(friction_scores), 4)
+            if friction_scores
             else 0.0,
-            "seed": self.seed,
             "k_ring": self.k,
         }
 
-    def regenerate(self, seed: int | None = None, k: int | None = None) -> None:
-        if k is not None:
-            self.k = k
-        if seed is not None:
-            self.seed = seed
-            self._rebuild_base()
-        self._compute_derived()
-
 
 class DatasetStore:
-    """Thread-safe holder for one Dataset instance per metro."""
+    """Thread-safe holder for one Dataset instance per metro.
+
+    Seeds every metro with demo synthetic data at startup so the app is usable
+    immediately; a real deployment would instead wait for the upstream service's
+    first push to each metro (or seed the same way as a fallback).
+    """
 
     def __init__(self):
         self._lock = threading.Lock()
         self._datasets = {metro_id: Dataset(metro_id) for metro_id in geo.METRO_REGISTRY}
+        for metro_id, dataset in self._datasets.items():
+            dataset.ingest(synthetic_data.build_demo_friction_records(metro_id))
 
     def get(self, metro_id: str) -> Dataset:
         with self._lock:
             return self._datasets[metro_id]
 
-    def regenerate(self, metro_id: str, seed: int | None = None, k: int | None = None) -> Dataset:
+    def ingest(self, metro_id: str, friction_records: list[dict], k: int | None = None) -> Dataset:
         with self._lock:
             dataset = self._datasets[metro_id]
-            dataset.regenerate(seed=seed, k=k)
+            dataset.ingest(friction_records, k=k)
             return dataset
 
 

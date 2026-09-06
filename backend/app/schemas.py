@@ -4,12 +4,15 @@ declared response_model (which Swagger UI's docs then render as "string")."""
 
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
+# --- shared -------------------------------------------------------------
 
 class HealthResponse(BaseModel):
     status: str
 
+
+# --- map (UX-supporting) endpoints --------------------------------------
 
 class MetroInfo(BaseModel):
     id: str
@@ -34,23 +37,66 @@ class BoundaryFeature(BaseModel):
     properties: BoundaryProperties
 
 
-class HexRecord(BaseModel):
-    """No geometry — the client derives each hex's boundary from `h3` via h3-js."""
+class MapHexRecord(BaseModel):
+    """No Gi*/cluster fields — those live under /api/clusters. No geometry — the
+    client derives each hex's boundary from `h3` via h3-js."""
 
     h3: str
-    order_count: int
-    late_rate: float
-    avg_delay_minutes: float
+    has_data: bool
+    friction_score: float | None
+    order_count: int | None
+    late_rate: float | None
+    avg_delay_minutes: float | None
+
+
+class MapHexesResponse(BaseModel):
+    hexes: list[MapHexRecord]
+
+
+class MapStatsResponse(BaseModel):
+    metro: str
+    hex_count: int
+    hexes_with_friction_data: int
+    cluster_count: int
+    mean_friction_score: float
+    k_ring: int
+
+
+# --- clusters (core computation) endpoints ------------------------------
+
+class HexFrictionInput(BaseModel):
+    """One hex's friction score, as pushed by the upstream friction-scoring service."""
+
+    h3: str
     friction_score: float
-    low_sample: bool
-    gi_z: float | None
-    gi_p: float | None
-    confidence: int
-    spot_type: str
+    order_count: int | None = None
+    late_rate: float | None = None
+    avg_delay_minutes: float | None = None
 
 
-class HexesResponse(BaseModel):
-    hexes: list[HexRecord]
+class ComputeRequest(BaseModel):
+    """Body for POST /api/clusters/compute.
+
+    `hexes` is required — this service retains no friction data between calls to
+    compute clusters from, only the derived cluster output (and hex display data
+    for /api/map/hexes). Every call is a full, self-contained push. `k` is
+    optional and defaults to the metro's current neighborhood radius.
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "k": 2,
+                "hexes": [
+                    {"h3": "8744acc05ffffff", "friction_score": 0.42, "order_count": 89, "late_rate": 0.13, "avg_delay_minutes": 4.1},
+                    {"h3": "8744acc04ffffff", "friction_score": 0.08, "order_count": 61, "late_rate": 0.02, "avg_delay_minutes": 0.6},
+                ],
+            }
+        }
+    )
+
+    hexes: list[HexFrictionInput]
+    k: int | None = None
 
 
 class ClusterRecord(BaseModel):
@@ -71,14 +117,3 @@ class ClusterRecord(BaseModel):
 
 class ClustersResponse(BaseModel):
     clusters: list[ClusterRecord]
-
-
-class StatsResponse(BaseModel):
-    metro: str
-    hex_count: int
-    hexes_with_data: int
-    total_orders: int
-    cluster_count: int
-    mean_friction_score: float
-    seed: int
-    k_ring: int

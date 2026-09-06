@@ -54,7 +54,7 @@ function severityColor(score) {
 
 function styleHex(feature) {
   const p = feature.properties;
-  if (p.low_sample) {
+  if (!p.has_data) {
     return { fillColor: "#9ca3af", fillOpacity: 0.15, color: "#cbd5e1", weight: 0.4, opacity: 0.5 };
   }
   return {
@@ -78,15 +78,15 @@ function styleCluster(feature) {
 }
 
 function hexPopup(p) {
+  if (!p.has_data) {
+    return `<div><b>H3 cell</b> ${p.h3}</div><div>No friction data available for this hex.</div>`;
+  }
   return `
     <div><b>H3 cell</b> ${p.h3}</div>
-    <div><b>Orders</b> ${p.order_count}</div>
-    <div><b>Late rate</b> ${(p.late_rate * 100).toFixed(1)}%</div>
-    <div><b>Avg delay</b> ${p.avg_delay_minutes.toFixed(1)} min</div>
+    <div><b>Orders</b> ${p.order_count ?? "n/a"}</div>
+    <div><b>Late rate</b> ${p.late_rate !== null ? (p.late_rate * 100).toFixed(1) + "%" : "n/a"}</div>
+    <div><b>Avg delay</b> ${p.avg_delay_minutes !== null ? p.avg_delay_minutes.toFixed(1) + " min" : "n/a"}</div>
     <div><b>Friction score</b> ${p.friction_score.toFixed(3)}</div>
-    <div><b>Gi* z-score</b> ${p.gi_z !== null ? p.gi_z.toFixed(2) : "n/a"}</div>
-    <div><b>Confidence</b> ${p.confidence}%</div>
-    <div><b>Spot type</b> ${p.spot_type}</div>
   `;
 }
 
@@ -148,7 +148,7 @@ function renderClusterList(clustersGeoJSON) {
 
 async function loadBoundary() {
   if (boundaryLayer) map.removeLayer(boundaryLayer);
-  const boundaryGeoJSON = await fetchJSON(`/api/boundary?metro=${currentMetro}`);
+  const boundaryGeoJSON = await fetchJSON(`/api/map/boundary?metro=${currentMetro}`);
   boundaryLayer = L.geoJSON(boundaryGeoJSON, {
     style: {
       fill: false,
@@ -173,9 +173,9 @@ function clusterToFeature(record) {
 
 async function loadAll() {
   const [hexesResp, clustersResp, stats] = await Promise.all([
-    fetchJSON(`/api/hexes?metro=${currentMetro}`),
+    fetchJSON(`/api/map/hexes?metro=${currentMetro}`),
     fetchJSON(`/api/clusters?metro=${currentMetro}`),
-    fetchJSON(`/api/stats?metro=${currentMetro}`),
+    fetchJSON(`/api/map/stats?metro=${currentMetro}`),
   ]);
 
   const hexesGeoJSON = { type: "FeatureCollection", features: hexesResp.hexes.map(hexToFeature) };
@@ -199,7 +199,7 @@ async function loadAll() {
   renderClusterList(clustersGeoJSON);
 
   document.getElementById("stats-readout").textContent =
-    `${stats.total_orders.toLocaleString()} orders · ${stats.hex_count.toLocaleString()} hexes · ` +
+    `${stats.hexes_with_friction_data.toLocaleString()} hexes with data · ${stats.hex_count.toLocaleString()} total hexes · ` +
     `${stats.cluster_count} clusters · avg friction ${stats.mean_friction_score.toFixed(3)}`;
 }
 
@@ -212,19 +212,6 @@ document.querySelectorAll(".seg-btn").forEach((btn) => {
   });
 });
 
-document.getElementById("reshuffle-btn").addEventListener("click", async (e) => {
-  const btn = e.currentTarget;
-  btn.disabled = true;
-  btn.textContent = "Reshuffling...";
-  try {
-    await fetchJSON(`/api/regenerate?metro=${currentMetro}`, { method: "POST" });
-    await loadAll();
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "Reshuffle Data";
-  }
-});
-
 async function switchMetro(metro) {
   if (metro.id === currentMetro) return;
   currentMetro = metro.id;
@@ -234,7 +221,7 @@ async function switchMetro(metro) {
 }
 
 async function initMetroToggle() {
-  const { metros } = await fetchJSON("/api/metros");
+  const { metros } = await fetchJSON("/api/map/metros");
   const container = document.getElementById("metro-toggle");
   container.innerHTML = "";
   metros.forEach((metro, i) => {
