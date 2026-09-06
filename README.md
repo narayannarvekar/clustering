@@ -86,6 +86,64 @@ isolation, only whether *its neighborhood's average* deviates from the metro ave
 the whole point of the statistic: it's what separates "this hex happens to be a bit bad" from
 "this is a real hotspot worth paying to fix."
 
+## How clusters and severity work
+
+Gi\* scores individual hexes; `clusters.py` (`build_clusters`) is what turns those scores into
+something you'd actually act on — contiguous regions with a single severity score and a
+suggested pay intervention. Two steps, both happening after every hex already has a
+`spot_type` from Gi\*:
+
+**1. Clustering — grouping hot hexes into contiguous regions**
+
+```python
+hot_cells = {c for c, r in gi_results.items() if r.spot_type == "hot"}
+components = [comp for comp in _connected_components(hot_cells) if len(comp) >= MIN_HEX_COUNT]
+```
+
+Only `hot` hexes are candidates — cold spots (statistically real, but good performers) and
+not-significant hexes never form a cluster, regardless of their raw friction score.
+`_connected_components` flood-fills using **direct** H3 adjacency (`grid_disk(cell, 1)`, the
+immediate ring — not the same `k` used for Gi\*'s neighborhood average) to find hot hexes that
+physically touch. A group needs at least `MIN_HEX_COUNT` (2) hexes to count — one isolated hot
+hex, even at 99% confidence, doesn't become a cluster by itself.
+
+**2. Severity — one 0–1 score blending statistical strength with actual magnitude**
+
+```python
+severity = 0.5 * min(mean_z / 3.0, 1.0) + 0.5 * mean_friction
+```
+
+- `mean_z / 3.0`, capped at 1.0 — how *statistically* strong the cluster is (mean Gi\* z-score
+  across its member hexes). The cap is a deliberate diminishing-returns ceiling so one extreme
+  outlier hex can't dominate the score.
+- `mean_friction` — how *bad* the cluster actually is in absolute terms (mean friction score
+  across its member hexes).
+
+It's an even 50/50 blend on purpose: a cluster that's statistically airtight (very high z) but
+only mildly bad in absolute friction shouldn't outrank one that's merely 90%-confident but
+genuinely severe. Severity then maps to an intervention tier (`SEVERITY_TIERS`):
+
+| Severity | Intervention tier | Suggested bonus |
+|---|---|---|
+| ≥ 0.75 | Priority Pay + Staffing Review | +25% |
+| ≥ 0.50 | Incentive Bonus | +15% |
+| ≥ 0.30 | Monitor | +5% |
+| < 0.30 | No action | 0% |
+
+**Continuing the worked example above:** A/B/C (mean_z = 2.585, mean_friction = 0.883) form one
+3-hex cluster:
+
+```
+severity = 0.5 · min(2.585 / 3, 1) + 0.5 · 0.883
+         = 0.5 · 0.862           + 0.5 · 0.883
+         = 0.431 + 0.442
+         = 0.873  →  Priority Pay + Staffing Review, +25% suggested bonus
+```
+
+D/E/F, despite being an equally real 95%-confidence cold spot, never enters this pipeline at
+all — only `hot` hexes are eligible, and cold spots (good performers) aren't a pay-intervention
+target by definition.
+
 ## Prerequisites
 
 - Python 3.10+
