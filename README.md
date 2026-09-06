@@ -130,6 +130,29 @@ genuinely severe. Severity then maps to an intervention tier (`SEVERITY_TIERS`):
 | ≥ 0.30 | Monitor | +5% |
 | < 0.30 | No action | 0% |
 
+What each tier is meant to signal, not just the bonus number attached to it:
+
+- **Priority Pay + Staffing Review (≥ 0.75, +25%)** — both a large pay bump *and* a flag that
+  the problem may be structural, not just a pay-elasticity one. A cluster this severe is worth
+  asking whether there's simply not enough courier supply routinely covering the area, which
+  extra pay alone may not fix — hence "staffing review," not pay alone.
+- **Incentive Bonus (0.50–0.74, +15%)** — the core lever: a real bonus for a cluster where
+  Gi\* and the friction magnitude both point to a genuine, worth-fixing problem.
+- **Monitor (0.30–0.49, +5%)** — a cluster just barely past the significance bar. A token bonus
+  more as a signal to keep watching than a real fix — could be a cluster that's about to
+  resolve itself on the next data refresh, or one just starting to emerge.
+- **No action (< 0.30, 0%)** — in practice this almost never fires: forming a cluster at all
+  already requires `z > 1.65` (≥90% confidence) on every member hex, which alone puts
+  `0.5 · min(mean_z/3, 1)` at ~0.28, so `mean_friction` would have to be near zero for the
+  total to land under 0.30. Kept as a safety floor rather than something to expect in practice.
+
+These four tiers, their thresholds, and their bonus percentages are a starting heuristic baked
+into `clusters.py`'s `SEVERITY_TIERS` — not something derived from real outcome data. Unlike
+friction scores (someone else's data, this service only consumes them), the tiers and bonus
+amounts are entirely this service's own policy choice, and the one place you'd want to
+calibrate against real historical OTP data — or A/B test directly — before trusting the
+suggested bonus amounts in production.
+
 **Continuing the worked example above:** A/B/C (mean_z = 2.585, mean_friction = 0.883) form one
 3-hex cluster:
 
