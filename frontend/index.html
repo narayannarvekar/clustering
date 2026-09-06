@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Delivery Friction Hotspots</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div id="app">
+  <header id="topbar">
+    <h1>Delivery Friction Hotspots</h1>
+    <div id="metro-toggle" class="segmented"></div>
+    <div id="layer-toggle" class="segmented">
+      <button data-layer="hexes" class="seg-btn active">Friction Hexes</button>
+      <button data-layer="clusters" class="seg-btn active">Clusters</button>
+    </div>
+    <div id="stats-readout"></div>
+    <button id="reshuffle-btn">Reshuffle Data</button>
+  </header>
+
+  <div id="main">
+    <aside id="sidebar">
+      <section class="legend-block">
+        <h2>Friction Score</h2>
+        <div class="gradient-bar friction-gradient"></div>
+        <div class="gradient-labels"><span>0.0 low</span><span>1.0 high</span></div>
+      </section>
+
+      <section class="legend-block">
+        <h2>Cluster Severity</h2>
+        <div class="gradient-bar severity-gradient"></div>
+        <div class="gradient-labels"><span>0.0 low</span><span>1.0 high</span></div>
+      </section>
+
+      <section class="cluster-list-block">
+        <h2>Clusters (by severity)</h2>
+        <ol id="cluster-list"></ol>
+      </section>
+    </aside>
+
+    <div id="map"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
