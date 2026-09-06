@@ -2,7 +2,7 @@ import random
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app import geo
+from app import geo, schemas
 from app.dataset import store
 
 router = APIRouter(prefix="/api")
@@ -14,17 +14,17 @@ def _validate_metro(metro: str) -> str:
     return metro
 
 
-@router.get("/health")
+@router.get("/health", response_model=schemas.HealthResponse)
 def health():
     return {"status": "ok"}
 
 
-@router.get("/metros")
+@router.get("/metros", response_model=schemas.MetrosResponse)
 def get_metros():
     return {"metros": geo.list_metros()}
 
 
-@router.get("/boundary")
+@router.get("/boundary", response_model=schemas.BoundaryFeature)
 def get_boundary(metro: str = Query("miami")):
     metro = _validate_metro(metro)
     return {
@@ -34,14 +34,14 @@ def get_boundary(metro: str = Query("miami")):
     }
 
 
-@router.get("/hexes")
+@router.get("/hexes", response_model=schemas.HexFeatureCollection)
 def get_hexes(metro: str = Query("miami")):
     metro = _validate_metro(metro)
     dataset = store.get(metro)
     return {"type": "FeatureCollection", "features": dataset.hex_features}
 
 
-@router.get("/clusters")
+@router.get("/clusters", response_model=schemas.ClusterFeatureCollection)
 def get_clusters(
     metro: str = Query("miami"),
     min_confidence: int = Query(90, ge=0, le=99),
@@ -55,13 +55,13 @@ def get_clusters(
     return {"type": "FeatureCollection", "features": features}
 
 
-@router.get("/stats")
+@router.get("/stats", response_model=schemas.StatsResponse)
 def get_stats(metro: str = Query("miami")):
     metro = _validate_metro(metro)
     return store.get(metro).stats
 
 
-@router.post("/regenerate")
+@router.post("/regenerate", response_model=schemas.StatsResponse)
 def regenerate(metro: str = Query("miami"), seed: int | None = None):
     metro = _validate_metro(metro)
     new_seed = seed if seed is not None else random.randint(1, 1_000_000)
